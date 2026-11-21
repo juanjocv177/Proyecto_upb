@@ -1,4 +1,4 @@
-package com.example.proyecto_upb
+gpackage com.example.proyecto_upb
 
 import android.content.Intent
 import android.os.Bundle
