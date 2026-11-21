@@ -4,7 +4,11 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.FirebaseDatabase
+import java.util.Locale
 
 class MenuActivity : AppCompatActivity() {
 
@@ -28,12 +32,16 @@ class MenuActivity : AppCompatActivity() {
 
         salir.setOnClickListener {
 
+            FirebaseAuth.getInstance().signOut()
+
             val sesion = getSharedPreferences(
                 "SesionFitBlood",
                 MODE_PRIVATE
             )
 
-            sesion.edit().remove("correo").apply()
+            sesion.edit()
+                .remove("correo")
+                .apply()
 
             val intent = Intent(this, MainActivity::class.java)
 
@@ -41,59 +49,124 @@ class MenuActivity : AppCompatActivity() {
                     Intent.FLAG_ACTIVITY_CLEAR_TASK
 
             startActivity(intent)
+            finish()
         }
     }
 
     override fun onResume() {
         super.onResume()
 
-        val sesion = getSharedPreferences(
-            "SesionFitBlood",
-            MODE_PRIVATE
-        )
-
-        val correo = sesion.getString("correo", "") ?: ""
-
         val textoCorreo = findViewById<TextView>(R.id.tvCorreoUsuario)
         val textoIMC = findViewById<TextView>(R.id.tvIMC)
         val textoCalorias = findViewById<TextView>(R.id.tvCalorias)
         val textoTotal = findViewById<TextView>(R.id.tvTotalCalculos)
 
-        textoCorreo.text = correo
+        val usuario = FirebaseAuth.getInstance().currentUser
 
-        if (correo.isEmpty()) {
-            textoIMC.text = "--"
-            textoCalorias.text = "--"
-            textoTotal.text = "Cálculos realizados: 0"
+        textoIMC.text = "--"
+        textoCalorias.text = "--"
+        textoTotal.text = "Cálculos realizados: 0"
+
+        if (usuario == null) {
+            textoCorreo.text = "Usuario no identificado"
             return
         }
 
-        val datos = getSharedPreferences(
-            "FitBlood_" + correo,
-            MODE_PRIVATE
-        )
+        textoCorreo.text = usuario.email ?: ""
 
-        val imc = datos.getString("imc", "--")
-        val calorias = datos.getInt("calorias", 0)
-        val registros = datos.getString("historial", "") ?: ""
+        val baseDatos = FirebaseDatabase.getInstance()
+            .getReference("usuarios")
+            .child(usuario.uid)
 
-        textoIMC.text = imc
+        // Obtener el nombre del usuario
+        baseDatos.child("nombre")
+            .get()
+            .addOnSuccessListener { dato ->
 
-        if (calorias == 0) {
-            textoCalorias.text = "--"
-        } else {
-            textoCalorias.text = calorias.toString()
-        }
+                val nombre = dato.getValue(String::class.java)
 
-        var total = 0
+                if (!nombre.isNullOrEmpty()) {
+                    textoCorreo.text = "Bienvenido, " + nombre
+                } else {
+                    textoCorreo.text = usuario.email ?: ""
+                }
+            }
+            .addOnFailureListener {
+                Toast.makeText(
+                    this,
+                    "No se pudo cargar el nombre",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
 
-        if (registros.isNotEmpty()) {
-            total = registros.split("Fecha: ").size - 1
-        }
+        // Obtener los cálculos guardados
+        baseDatos.child("calculos")
+            .get()
+            .addOnSuccessListener { datos ->
 
-        textoTotal.text = "Cálculos realizados: " + total
+                var total = 0
+                var ultimaFecha = Long.MIN_VALUE
+                var ultimoIMC = 0.0
+                var ultimasCalorias = 0
+
+                for (calculo in datos.children) {
+
+                    val imc = calculo.child("imc")
+                        .getValue(Double::class.java)
+
+                    val calorias = calculo.child("calorias")
+                        .getValue(Int::class.java)
+
+                    val fecha = calculo.child("fechaMillis")
+                        .getValue(Long::class.java)
+
+                    if (imc != null &&
+                        calorias != null &&
+                        fecha != null) {
+
+                        total++
+
+                        if (fecha > ultimaFecha) {
+
+                            ultimaFecha = fecha
+                            ultimoIMC = imc
+                            ultimasCalorias = calorias
+                        }
+                    }
+                }
+
+                textoTotal.text = "Cálculos realizados: " + total
+
+                if (total > 0) {
+
+                    textoIMC.text = String.format(
+                        Locale.US,
+                        "%.2f",
+                        ultimoIMC
+                    )
+
+                    textoCalorias.text = ultimasCalorias.toString()
+
+                } else {
+
+                    textoIMC.text = "--"
+                    textoCalorias.text = "--"
+                }
+            }
+            .addOnFailureListener { error ->
+
+                Toast.makeText(
+                    this,
+                    "Error al cargar cálculos: " +
+                            error.localizedMessage,
+                    Toast.LENGTH_LONG
+                ).show()
+            }
     }
 }
+
+
+
 
 
 

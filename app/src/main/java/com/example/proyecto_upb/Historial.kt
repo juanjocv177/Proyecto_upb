@@ -11,7 +11,10 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.*
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -58,17 +61,13 @@ class HistorialActivity : AppCompatActivity() {
         val eliminar = findViewById<Button>(R.id.btnEliminarHistorial)
         val volver = findViewById<Button>(R.id.btnVolverHistorial)
 
-        val sesion = getSharedPreferences(
-            "SesionFitBlood",
-            MODE_PRIVATE
-        )
+        val usuario = FirebaseAuth.getInstance().currentUser
 
-        val correo = sesion.getString("correo", "") ?: ""
-
-        if (correo.isEmpty()) {
+        if (usuario == null) {
             eliminar.isEnabled = false
+            resumen.text = "Debes iniciar sesión"
         } else {
-            cargarRegistros(correo)
+            cargarRegistros(usuario.uid)
         }
 
         tresMeses.setOnClickListener {
@@ -88,27 +87,54 @@ class HistorialActivity : AppCompatActivity() {
 
         eliminar.setOnClickListener {
 
-            AlertDialog.Builder(this)
-                .setTitle("Eliminar historial")
-                .setMessage("¿Deseas eliminar todos tus cálculos?")
-                .setPositiveButton("Eliminar") { _, _ ->
+            if (usuario != null) {
 
-                    val datos = getSharedPreferences(
-                        "FitBlood_" + correo,
-                        MODE_PRIVATE
-                    )
+                AlertDialog.Builder(this)
+                    .setTitle("Eliminar historial")
+                    .setMessage("¿Deseas eliminar todos tus cálculos?")
+                    .setPositiveButton("Eliminar") { _, _ ->
 
-                    datos.edit()
-                        .remove("historial")
-                        .remove("imc")
-                        .remove("calorias")
-                        .apply()
+                        val referencia = FirebaseDatabase.getInstance()
+                            .getReference("usuarios")
+                            .child(usuario.uid)
+                            .child("calculos")
 
-                    registros.clear()
-                    mostrarDatos()
-                }
-                .setNegativeButton("Cancelar", null)
-                .show()
+                        referencia.removeValue()
+                            .addOnSuccessListener {
+
+                                val correo = usuario.email ?: ""
+
+                                val datos = getSharedPreferences(
+                                    "FitBlood_" + correo,
+                                    MODE_PRIVATE
+                                )
+
+                                datos.edit()
+                                    .remove("historial")
+                                    .remove("imc")
+                                    .remove("calorias")
+                                    .apply()
+
+                                registros.clear()
+                                mostrarDatos()
+
+                                Toast.makeText(
+                                    this,
+                                    "Historial eliminado",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            .addOnFailureListener {
+                                Toast.makeText(
+                                    this,
+                                    "Error al eliminar: " + it.localizedMessage,
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                    }
+                    .setNegativeButton("Cancelar", null)
+                    .show()
+            }
         }
 
         volver.setOnClickListener {
@@ -118,58 +144,57 @@ class HistorialActivity : AppCompatActivity() {
         mostrarDatos()
     }
 
-    private fun cargarRegistros(correo: String) {
+    private fun cargarRegistros(uid: String) {
 
-        val datos = getSharedPreferences(
-            "FitBlood_" + correo,
-            MODE_PRIVATE
-        )
+        val referencia = FirebaseDatabase.getInstance()
+            .getReference("usuarios")
+            .child(uid)
+            .child("calculos")
 
-        val historial = datos.getString("historial", "") ?: ""
+        referencia.addValueEventListener(object : ValueEventListener {
 
-        val bloques = historial.split("----------------------------")
+            override fun onDataChange(snapshot: DataSnapshot) {
 
-        formato.isLenient = false
+                registros.clear()
 
-        for (bloque in bloques) {
+                for (dato in snapshot.children) {
 
-            val fechaTexto = Regex(
-                """Fecha:\s*(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2})"""
-            ).find(bloque)?.groupValues?.get(1)
+                    val imc = dato.child("imc")
+                        .getValue(Double::class.java)
 
-            val imcTexto = Regex(
-                """IMC:\s*(\d+(?:[.,]\d+)?)"""
-            ).find(bloque)?.groupValues?.get(1)
+                    val calorias = dato.child("calorias")
+                        .getValue(Int::class.java)
 
-            val caloriasTexto = Regex(
-                """Calorías diarias:\s*(\d+)"""
-            ).find(bloque)?.groupValues?.get(1)
+                    val fechaMillis = dato.child("fechaMillis")
+                        .getValue(Long::class.java)
 
-            if (fechaTexto != null &&
-                imcTexto != null &&
-                caloriasTexto != null) {
+                    if (imc != null &&
+                        calorias != null &&
+                        fechaMillis != null) {
 
-                val fecha = try {
-                    formato.parse(fechaTexto)
-                } catch (e: Exception) {
-                    null
+                        registros.add(
+                            RegistroFitBlood(
+                                Date(fechaMillis),
+                                imc.toFloat(),
+                                calorias
+                            )
+                        )
+                    }
                 }
 
-                val imc = imcTexto.replace(",", ".").toFloatOrNull()
-                val calorias = caloriasTexto.toIntOrNull()
-
-                if (fecha != null &&
-                    imc != null &&
-                    calorias != null) {
-
-                    registros.add(
-                        RegistroFitBlood(fecha, imc, calorias)
-                    )
-                }
+                registros.sortBy { it.fecha.time }
+                mostrarDatos()
             }
-        }
 
-        registros.sortBy { it.fecha.time }
+            override fun onCancelled(error: DatabaseError) {
+
+                Toast.makeText(
+                    this@HistorialActivity,
+                    "Error al cargar historial: " + error.message,
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        })
     }
 
     private fun mostrarDatos() {
@@ -334,8 +359,8 @@ class GraficaIMC(
             return
         }
 
-        val minimo = datos.minOf { it.imc }.toFloat()
-        val maximo = datos.maxOf { it.imc }.toFloat()
+        val minimo = datos.minOf { it.imc }
+        val maximo = datos.maxOf { it.imc }
 
         val rango = if (maximo == minimo) 2f else maximo - minimo
         val base = if (maximo == minimo) minimo - 1f else minimo
@@ -425,5 +450,6 @@ class GraficaIMC(
         }
     }
 }
+
 
 

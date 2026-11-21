@@ -8,6 +8,8 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.FirebaseDatabase
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -29,7 +31,8 @@ class CalculoActivity : AppCompatActivity() {
         val volver = findViewById<Button>(R.id.btnVolver)
 
         val resultadoIMC = findViewById<TextView>(R.id.tvResultadoIMC)
-        val resultadoCalorias = findViewById<TextView>(R.id.tvResultadoCalorias)
+        val resultadoCalorias =
+            findViewById<TextView>(R.id.tvResultadoCalorias)
 
         val opcionesSexo = arrayOf(
             "Selecciona tu sexo",
@@ -89,9 +92,11 @@ class CalculoActivity : AppCompatActivity() {
 
             } else {
 
+                // Calcular IMC
                 val metros = e / 100
                 val imc = p / (metros * metros)
 
+                // Calcular metabolismo basal
                 val metabolismo: Double
 
                 if (sexo.selectedItemPosition == 1) {
@@ -100,6 +105,7 @@ class CalculoActivity : AppCompatActivity() {
                     metabolismo = 10 * p + 6.25 * e - 5 * a - 161
                 }
 
+                // Factor de actividad física
                 val factor: Double
 
                 if (actividad.selectedItemPosition == 1) {
@@ -128,57 +134,115 @@ class CalculoActivity : AppCompatActivity() {
                     "Calorías diarias: " +
                             calorias.toInt() + " kcal"
 
-                val sesion = getSharedPreferences(
-                    "SesionFitBlood",
-                    MODE_PRIVATE
-                )
+                // Obtener usuario de Firebase
+                val usuario = FirebaseAuth.getInstance().currentUser
 
-                val correo = sesion.getString("correo", "") ?: ""
+                if (usuario == null) {
 
-                if (correo.isEmpty()) {
                     Toast.makeText(
                         this,
                         "Debes iniciar sesión",
                         Toast.LENGTH_SHORT
                     ).show()
+
                 } else {
-
-                    val datos = getSharedPreferences(
-                        "FitBlood_" + correo,
-                        MODE_PRIVATE
-                    )
-
-                    val historialAnterior = datos.getString(
-                        "historial",
-                        ""
-                    ) ?: ""
 
                     val fecha = SimpleDateFormat(
                         "dd/MM/yyyy HH:mm",
                         Locale.getDefault()
                     ).format(Date())
 
-                    val nuevoRegistro =
-                        "Fecha: " + fecha +
-                                "\nIMC: " + imcTexto +
-                                "\nCalorías diarias: " +
-                                calorias.toInt() + " kcal" +
-                                "\n----------------------------\n\n"
+                    // Guardar historial en el celular
+                    val sesion = getSharedPreferences(
+                        "SesionFitBlood",
+                        MODE_PRIVATE
+                    )
 
-                    datos.edit()
-                        .putString("imc", imcTexto)
-                        .putInt("calorias", calorias.toInt())
-                        .putString(
-                            "historial",
-                            nuevoRegistro + historialAnterior
+                    val correo = usuario.email
+                        ?: sesion.getString("correo", "")
+                        ?: ""
+
+                    if (correo.isNotEmpty()) {
+
+                        val datos = getSharedPreferences(
+                            "FitBlood_" + correo,
+                            MODE_PRIVATE
                         )
-                        .apply()
 
-                    Toast.makeText(
-                        this,
-                        "Cálculo realizado y guardado",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                        val historialAnterior = datos.getString(
+                            "historial",
+                            ""
+                        ) ?: ""
+
+                        val nuevoRegistro =
+                            "Fecha: " + fecha +
+                                    "\nIMC: " + imcTexto +
+                                    "\nCalorías diarias: " +
+                                    calorias.toInt() + " kcal" +
+                                    "\n----------------------------\n\n"
+
+                        datos.edit()
+                            .putString("imc", imcTexto)
+                            .putInt("calorias", calorias.toInt())
+                            .putString(
+                                "historial",
+                                nuevoRegistro + historialAnterior
+                            )
+                            .apply()
+                    }
+
+                    // Guardar en Firebase Realtime Database
+                    val baseDatos = FirebaseDatabase.getInstance()
+                        .getReference("usuarios")
+                        .child(usuario.uid)
+                        .child("calculos")
+
+                    val idCalculo = baseDatos.push().key
+
+                    if (idCalculo != null) {
+
+                        val registro = hashMapOf<String, Any>(
+                            "peso" to p,
+                            "estatura" to e,
+                            "edad" to a,
+                            "sexo" to sexo.selectedItem.toString(),
+                            "actividad" to actividad.selectedItem.toString(),
+                            "imc" to imc,
+                            "calorias" to calorias.toInt(),
+                            "fecha" to fecha,
+                            "fechaMillis" to System.currentTimeMillis()
+                        )
+
+                        baseDatos.child(idCalculo)
+                            .setValue(registro)
+                            .addOnSuccessListener {
+
+                                Toast.makeText(
+                                    this,
+                                    "Cálculo guardado en Firebase",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+
+                            }
+                            .addOnFailureListener { error ->
+
+                                Toast.makeText(
+                                    this,
+                                    "Error al guardar en Firebase: " +
+                                            error.localizedMessage,
+                                    Toast.LENGTH_LONG
+                                ).show()
+
+                            }
+
+                    } else {
+
+                        Toast.makeText(
+                            this,
+                            "No se pudo crear el registro",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
         }
@@ -188,6 +252,8 @@ class CalculoActivity : AppCompatActivity() {
         }
     }
 }
+
+
 
 
 

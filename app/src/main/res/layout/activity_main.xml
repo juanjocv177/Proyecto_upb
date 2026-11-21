@@ -35,7 +35,6 @@
                 android:text="Tu bienestar, con calma."
                 android:textSize="11sp"
                 android:textColor="#555555"/>
-
         </LinearLayout>
 
         <TextView
@@ -83,7 +82,34 @@
                 android:textColor="#000000"
                 android:textSize="14sp"
                 android:backgroundTint="#EEEEEE"/>
+        </LinearLayout>
 
+        <LinearLayout
+            android:id="@+id/contenedorNombre"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="35dp"
+                android:text="Nombre completo"
+                android:textSize="17sp"
+                android:textStyle="bold"
+                android:textColor="#000000"/>
+
+            <EditText
+                android:id="@+id/etNombre"
+                android:layout_width="match_parent"
+                android:layout_height="55dp"
+                android:layout_marginTop="8dp"
+                android:hint="Escribe tu nombre"
+                android:inputType="textPersonName"
+                android:singleLine="true"
+                android:padding="12dp"
+                android:textSize="15sp"/>
         </LinearLayout>
 
         <TextView
@@ -148,5 +174,5 @@
             android:textSize="15sp"/>
 
     </LinearLayout>
-
 </ScrollView>
+
